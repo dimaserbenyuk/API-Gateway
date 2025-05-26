@@ -3,13 +3,20 @@ frameworkVersion: '4.14.4'
 
 provider:
   name: aws
-  runtime: provided.al2            # ✅ Go теперь через кастомный runtime
+  runtime: provided.al2
   region: us-east-1
   stage: ${opt:stage, 'dev'}
   architecture: x86_64
   memorySize: 256
   timeout: 10
   logRetentionInDays: 7
+  logs:
+    restApi:
+      accessLogging: true
+      executionLogging: true
+      level: INFO
+      fullExecutionData: true
+      format: '{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "caller": "$context.identity.caller", "user": "$context.identity.user", "requestTime": "$context.requestTime", "httpMethod": "$context.httpMethod", "resourcePath": "$context.resourcePath", "status": "$context.status", "protocol": "$context.protocol", "responseLength": "$context.responseLength" }'
 
   environment:
     TODOS_TABLE: ${self:service}-${opt:stage, 'dev'}-todos
@@ -28,23 +35,25 @@ provider:
             - arn:aws:dynamodb:${aws:region}:*:table/${self:provider.environment.TODOS_TABLE}
 
 package:
-  artifact: bin/handler.zip       # ZIP должен содержать файл bootstrap
+  artifact: bin/handler.zip
 
 functions:
-  getTodo:
-    handler: bootstrap            # ✅ bootstrap — это entry point для provided.al2
-    memorySize: 256
-    timeout: 5
-    description: "Get all TODOs"
+  api:
+    handler: bootstrap
+    description: "Unified Lambda for TODO API"
     environment:
       STAGE: ${opt:stage, 'dev'}
+    memorySize: 256
+    timeout: 5
     events:
       - http:
           path: todos
           method: get
           cors: true
-          authorizer: aws_iam
-    maximumRetryAttempts: 1
+      - http:
+          path: todos
+          method: post
+          cors: true
 
 resources:
   Resources:

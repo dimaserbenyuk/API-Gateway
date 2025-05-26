@@ -1,0 +1,67 @@
+openapi: 3.0.1
+info:
+  title: Go TODO API
+  version: "1.0.0"
+  description: Simple AWS Lambda-powered TODO API in Go
+
+servers:
+  - url: https://yyn0razr5j.execute-api.us-east-1.amazonaws.com/dev
+
+paths:
+  /todos:
+    get:
+      summary: Get all todos
+      operationId: getTodos
+      tags:
+        - Todos
+      responses:
+        '200':
+          description: A list of todos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Todo'
+              example:
+                - id: "1"
+                  title: "Hello from Lambda"
+                - id: "2"
+                  title: "Learn API Gateway with Go"
+    post:
+      summary: Create a new todo
+      operationId: createTodo
+      tags:
+        - Todos
+      requestBody:
+        description: Todo object to be added
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Todo'
+            example:
+              id: "2"
+              title: "Learn API Gateway with Go"
+      responses:
+        '201':
+          description: Todo created successfully
+        '400':
+          description: Invalid input
+        '500':
+          description: Internal server error
+
+components:
+  schemas:
+    Todo:
+      type: object
+      required:
+        - id
+        - title
+      properties:
+        id:
+          type: string
+          example: "123"
+        title:
+          type: string
+          example: "Write documentation"
