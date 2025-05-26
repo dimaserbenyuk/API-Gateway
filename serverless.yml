@@ -11,6 +11,10 @@ provider:
   timeout: 10
   logRetentionInDays: 7
   versionFunctions: true
+  apiGateway:
+    minimumCompressionSize: 1024
+    shouldStartNameWithService: true
+    # stage: customStageName
   logs:
     restApi:
       accessLogging: true
