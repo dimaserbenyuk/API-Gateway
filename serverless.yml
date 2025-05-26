@@ -10,6 +10,7 @@ provider:
   memorySize: 256
   timeout: 10
   logRetentionInDays: 7
+  versionFunctions: true
   logs:
     restApi:
       accessLogging: true
@@ -17,10 +18,8 @@ provider:
       level: INFO
       fullExecutionData: true
       format: '{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "caller": "$context.identity.caller", "user": "$context.identity.user", "requestTime": "$context.requestTime", "httpMethod": "$context.httpMethod", "resourcePath": "$context.resourcePath", "status": "$context.status", "protocol": "$context.protocol", "responseLength": "$context.responseLength" }'
-
   environment:
     TODOS_TABLE: ${self:service}-${opt:stage, 'dev'}-todos
-
   iam:
     role:
       statements:
@@ -33,6 +32,9 @@ provider:
             - dynamodb:UpdateItem
           Resource:
             - arn:aws:dynamodb:${aws:region}:*:table/${self:provider.environment.TODOS_TABLE}
+  tags:
+    Project: go-serverless-todo
+    Environment: ${opt:stage, 'dev'}
 
 package:
   artifact: bin/handler.zip
@@ -41,10 +43,10 @@ functions:
   api:
     handler: bootstrap
     description: "Unified Lambda for TODO API"
-    environment:
-      STAGE: ${opt:stage, 'dev'}
     memorySize: 256
     timeout: 5
+    environment:
+      STAGE: ${opt:stage, 'dev'}
     events:
       - http:
           path: todos
