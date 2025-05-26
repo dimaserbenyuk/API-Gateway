@@ -36,9 +36,6 @@ provider:
             - dynamodb:UpdateItem
           Resource:
             - arn:aws:dynamodb:${aws:region}:*:table/${self:provider.environment.TODOS_TABLE}
-  tags:
-    Project: go-serverless-todo
-    Environment: ${opt:stage, 'dev'}
 
 package:
   artifact: bin/handler.zip
@@ -56,13 +53,25 @@ functions:
           path: todos
           method: get
           cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer-v2
+            type: COGNITO_USER_POOLS
+            arn:
+              Fn::GetAtt: [CognitoUserPool, Arn]
       - http:
           path: todos
           method: post
           cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer-v2
+            type: COGNITO_USER_POOLS
+            arn:
+              Fn::GetAtt: [CognitoUserPool, Arn]
 
 resources:
   Resources:
+
+    ### DynamoDB Table
     TodosTable:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -74,3 +83,76 @@ resources:
           - AttributeName: id
             KeyType: HASH
         BillingMode: PAY_PER_REQUEST
+
+    ### Cognito User Pool
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${self:service}-${self:provider.stage}-user-pool
+        AutoVerifiedAttributes:
+          - email
+        UsernameAttributes:
+          - email
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 8
+            RequireUppercase: false
+            RequireLowercase: true
+            RequireNumbers: true
+            RequireSymbols: false
+
+    ### Cognito App Client
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: ${self:service}-${self:provider.stage}-client
+        UserPoolId: !Ref CognitoUserPool
+        GenerateSecret: false
+        ExplicitAuthFlows:
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+          - ALLOW_USER_SRP_AUTH
+        SupportedIdentityProviders:
+          - COGNITO
+        CallbackURLs:
+          - http://localhost:3000
+        LogoutURLs:
+          - http://localhost:3000/logout
+        AllowedOAuthFlows:
+          - implicit
+        AllowedOAuthScopes:
+          - email
+          - openid
+          - profile
+        AllowedOAuthFlowsUserPoolClient: true
+
+    ### Cognito Hosted UI Domain
+    CognitoUserPoolDomain:
+      Type: AWS::Cognito::UserPoolDomain
+      Properties:
+        Domain: ${self:service}-${self:provider.stage}-auth-${sls:stage}-ds
+        UserPoolId: !Ref CognitoUserPool
+
+    ### API Gateway Authorizer
+    ApiGatewayCognitoAuthorizer:
+      Type: AWS::ApiGateway::Authorizer
+      Properties:
+        Name: ${self:service}-${self:provider.stage}-authorizer-v2-fwqrefqwrfvqerf
+        Type: COGNITO_USER_POOLS
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        IdentitySource: method.request.header.Authorization
+        ProviderARNs:
+          - Fn::GetAtt: [CognitoUserPool, Arn]
+
+https://go-serverless-todo-dev-auth-dev-ds.auth.us-east-1.amazoncognito.com/login?response_type=token&client_id=49q3dgsff2nsvubb6rbt8ho0c3&redirect_uri=http://localhost:3000
+
+
+curl -H "Authorization: Bearer eyJraWQiOiI4Y053SitNVlwvSWlvXC9FY3hSdWhLcTZrY3lEVFIyem5QVUFPRVJpc3B5d0E9IiwiYWxnIjoiUlMyNTYifQ.eyJhdF9oYXNoIjoiVGNNUEYzdlkyZjdIcy1mZ3VHOC1OUSIsInN1YiI6IjU0NzhiNDY4LTgwOTEtNzAzMy1kZWNlLTRmZWQ0OGYwN2I1ZiIsImlzcyI6Imh0dHBzOlwvXC9jb2duaXRvLWlkcC51cy1lYXN0LTEuYW1hem9uYXdzLmNvbVwvdXMtZWFzdC0xX05raTU2ZkR2WiIsImNvZ25pdG86dXNlcm5hbWUiOiI1NDc4YjQ2OC04MDkxLTcwMzMtZGVjZS00ZmVkNDhmMDdiNWYiLCJhdWQiOiI0OXEzZGdzZmYybnN2dWJiNnJidDhobzBjMyIsImV2ZW50X2lkIjoiNDkwZDVkYTktZWNhMC00YjVlLWI1YzAtMDk3NDZlNzIwYWNlIiwidG9rZW5fdXNlIjoiaWQiLCJhdXRoX3RpbWUiOjE3NDgyODkzMjgsImV4cCI6MTc0ODI5MjkyOCwiaWF0IjoxNzQ4Mjg5MzI4LCJqdGkiOiI1YzU4MDdlYi1jNmM2LTQxNTUtYjdiMC1jYTEzZGQ5MzQ0Y2IiLCJlbWFpbCI6ImRteXRyb3NlcmJlbml1a2RldkBnbWFpbC5jb20ifQ.D1I-jmE8JqUNieQ8MZa2WPy9JBhQvUZKzAHaHRN9YjnlYVzpYbbDzNJ9dlmPbfv7uyhaP88Mix-ziT98AbzNi29g-ZYl6d7NvP349fjS3V_TtT5NJhBxFBT33mYgypRzoYYFePTBcfYCgo6tGg_DkXEi1SWDAuSXLkL1JtxP4vh1aFEm585G8nA1sJNGVVd1_9tq7aR6_xjzcn8Rxa42HTn4X4x7HZltDVABH1sVQyeEh6P0NSIv-nybx-fwUcbUbNUgKrqgiwPjCnfJ0xOCe_d7WNfeQPihAgEijyzi1Mmd_s3-DkZuGyb0QUq_n_k-btYa1Wr-WTH9mn4WEYEYLg&access_token=eyJraWQiOiJqNDFFVkZMY0o2QnFMSWg2S1RvTFJzOFZjM1V1UlVtaGNDMUY1MjlvQXNvPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI1NDc4YjQ2OC04MDkxLTcwMzMtZGVjZS00ZmVkNDhmMDdiNWYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAudXMtZWFzdC0xLmFtYXpvbmF3cy5jb21cL3VzLWVhc3QtMV9Oa2k1NmZEdloiLCJ2ZXJzaW9uIjoyLCJjbGllbnRfaWQiOiI0OXEzZGdzZmYybnN2dWJiNnJidDhobzBjMyIsImV2ZW50X2lkIjoiNDkwZDVkYTktZWNhMC00YjVlLWI1YzAtMDk3NDZlNzIwYWNlIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJvcGVuaWQgcHJvZmlsZSBlbWFpbCIsImF1dGhfdGltZSI6MTc0ODI4OTMyOCwiZXhwIjoxNzQ4MjkyOTI4LCJpYXQiOjE3NDgyODkzMjgsImp0aSI6ImE0MjNhMzdlLWQ5YjYtNDNmMy05ZWZkLTM2MGE0NmRhYWJkNSIsInVzZXJuYW1lIjoiNTQ3OGI0NjgtODA5MS03MDMzLWRlY2UtNGZlZDQ4ZjA3YjVmIn0.M8mVffQ-NutQ-8EowSvIOnKLwju1W3gamZ9GF-MkruGR0kW4I3OFys5nyaO1IqOXZ5o4mrI-ySpgyolXz11HKN5uABaW2wZzbMlUwe1Nf49gAkfhNTpXNIUHusUlQt-cQSkmcFnJx1W_xrlUkGv3sq5c4znSO9rK_zr-nYgG0S78nbnWG7nH8Q2g64j3yVEdiXv3SpPv3Zjni04Rit1LNjgrixpzJa244hqT6tFTTgE6xh271yd0eRP_NGN11KWEo-2Vz502xbtdw5pwUICmftoWYwQ5lfYKOKNlRfsxaDxuEF21obhggvZhASEEpTQgfDkmM-QWGwlrJs4bQBBZPg" \
+  https://372o4jo93g.execute-api.us-east-1.amazonaws.com/dev/todos
+
+http://localhost:3000/#id_token=eyJraWQiOiI4Y053SitNVlwvSWlvXC9FY3hSdWhLcTZrY3lEVFIyem5QVUFPRVJpc3B5d0E9IiwiYWxnIjoiUlMyNTYifQ.eyJhdF9oYXNoIjoiVGNNUEYzdlkyZjdIcy1mZ3VHOC1OUSIsInN1YiI6IjU0NzhiNDY4LTgwOTEtNzAzMy1kZWNlLTRmZWQ0OGYwN2I1ZiIsImlzcyI6Imh0dHBzOlwvXC9jb2duaXRvLWlkcC51cy1lYXN0LTEuYW1hem9uYXdzLmNvbVwvdXMtZWFzdC0xX05raTU2ZkR2WiIsImNvZ25pdG86dXNlcm5hbWUiOiI1NDc4YjQ2OC04MDkxLTcwMzMtZGVjZS00ZmVkNDhmMDdiNWYiLCJhdWQiOiI0OXEzZGdzZmYybnN2dWJiNnJidDhobzBjMyIsImV2ZW50X2lkIjoiNDkwZDVkYTktZWNhMC00YjVlLWI1YzAtMDk3NDZlNzIwYWNlIiwidG9rZW5fdXNlIjoiaWQiLCJhdXRoX3RpbWUiOjE3NDgyODkzMjgsImV4cCI6MTc0ODI5MjkyOCwiaWF0IjoxNzQ4Mjg5MzI4LCJqdGkiOiI1YzU4MDdlYi1jNmM2LTQxNTUtYjdiMC1jYTEzZGQ5MzQ0Y2IiLCJlbWFpbCI6ImRteXRyb3NlcmJlbml1a2RldkBnbWFpbC5jb20ifQ.D1I-jmE8JqUNieQ8MZa2WPy9JBhQvUZKzAHaHRN9YjnlYVzpYbbDzNJ9dlmPbfv7uyhaP88Mix-ziT98AbzNi29g-ZYl6d7NvP349fjS3V_TtT5NJhBxFBT33mYgypRzoYYFePTBcfYCgo6tGg_DkXEi1SWDAuSXLkL1JtxP4vh1aFEm585G8nA1sJNGVVd1_9tq7aR6_xjzcn8Rxa42HTn4X4x7HZltDVABH1sVQyeEh6P0NSIv-nybx-fwUcbUbNUgKrqgiwPjCnfJ0xOCe_d7WNfeQPihAgEijyzi1Mmd_s3-DkZuGyb0QUq_n_k-btYa1Wr-WTH9mn4WEYEYLg&access_token=eyJraWQiOiJqNDFFVkZMY0o2QnFMSWg2S1RvTFJzOFZjM1V1UlVtaGNDMUY1MjlvQXNvPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI1NDc4YjQ2OC04MDkxLTcwMzMtZGVjZS00ZmVkNDhmMDdiNWYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAudXMtZWFzdC0xLmFtYXpvbmF3cy5jb21cL3VzLWVhc3QtMV9Oa2k1NmZEdloiLCJ2ZXJzaW9uIjoyLCJjbGllbnRfaWQiOiI0OXEzZGdzZmYybnN2dWJiNnJidDhobzBjMyIsImV2ZW50X2lkIjoiNDkwZDVkYTktZWNhMC00YjVlLWI1YzAtMDk3NDZlNzIwYWNlIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJvcGVuaWQgcHJvZmlsZSBlbWFpbCIsImF1dGhfdGltZSI6MTc0ODI4OTMyOCwiZXhwIjoxNzQ4MjkyOTI4LCJpYXQiOjE3NDgyODkzMjgsImp0aSI6ImE0MjNhMzdlLWQ5YjYtNDNmMy05ZWZkLTM2MGE0NmRhYWJkNSIsInVzZXJuYW1lIjoiNTQ3OGI0NjgtODA5MS03MDMzLWRlY2UtNGZlZDQ4ZjA3YjVmIn0.M8mVffQ-NutQ-8EowSvIOnKLwju1W3gamZ9GF-MkruGR0kW4I3OFys5nyaO1IqOXZ5o4mrI-ySpgyolXz11HKN5uABaW2wZzbMlUwe1Nf49gAkfhNTpXNIUHusUlQt-cQSkmcFnJx1W_xrlUkGv3sq5c4znSO9rK_zr-nYgG0S78nbnWG7nH8Q2g64j3yVEdiXv3SpPv3Zjni04Rit1LNjgrixpzJa244hqT6tFTTgE6xh271yd0eRP_NGN11KWEo-2Vz502xbtdw5pwUICmftoWYwQ5lfYKOKNlRfsxaDxuEF21obhggvZhASEEpTQgfDkmM-QWGwlrJs4bQBBZPg&expires_in=3600&token_type=Bearer
+
+
+curl -H "Authorization: Bearer eyJraWQiOiJqNDFFVkZMY0o2QnFMSWg2S1RvTFJzOFZjM1V1UlVtaGNDMUY1MjlvQXNvPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI1NDc4YjQ2OC04MDkxLTcwMzMtZGVjZS00ZmVkNDhmMDdiNWYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAudXMtZWFzdC0xLmFtYXpvbmF3cy5jb21cL3VzLWVhc3QtMV9Oa2k1NmZEdloiLCJ2ZXJzaW9uIjoyLCJjbGllbnRfaWQiOiI0OXEzZGdzZmYybnN2dWJiNnJidDhobzBjMyIsImV2ZW50X2lkIjoiNDkwZDVkYTktZWNhMC00YjVlLWI1YzAtMDk3NDZlNzIwYWNlIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJvcGVuaWQgcHJvZmlsZSBlbWFpbCIsImF1dGhfdGltZSI6MTc0ODI4OTMyOCwiZXhwIjoxNzQ4MjkyOTI4LCJpYXQiOjE3NDgyODkzMjgsImp0aSI6ImE0MjNhMzdlLWQ5YjYtNDNmMy05ZWZkLTM2MGE0NmRhYWJkNSIsInVzZXJuYW1lIjoiNTQ3OGI0NjgtODA5MS03MDMzLWRlY2UtNGZlZDQ4ZjA3YjVmIn0.M8mVffQ-NutQ-8EowSvIOnKLwju1W3gamZ9GF-MkruGR0kW4I3OFys5nyaO1IqOXZ5o4mrI-ySpgyolXz11HKN5uABaW2wZzbMlUwe1Nf49gAkfhNTpXNIUHusUlQt-cQSkmcFnJx1W_xrlUkGv3sq5c4znSO9rK_zr-nYgG0S78nbnWG7nH8Q2g64j3yVEdiXv3SpPv3Zjni04Rit1LNjgrixpzJa244hqT6tFTTgE6xh271yd0eRP_NGN11KWEo-2Vz502xbtdw5pwUICmftoWYwQ5lfYKOKNlRfsxaDxuEF21obhggvZhASEEpTQgfDkmM-QWGwlrJs4bQBBZPg" \
+  https://372o4jo93g.execute-api.us-east-1.amazonaws.com/dev/todos
