@@ -11,17 +11,6 @@ provider:
   timeout: 10
   logRetentionInDays: 7
   versionFunctions: true
-  apiGateway:
-    minimumCompressionSize: 1024
-    shouldStartNameWithService: true
-    # stage: customStageName
-  logs:
-    restApi:
-      accessLogging: true
-      executionLogging: true
-      level: INFO
-      fullExecutionData: true
-      format: '{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "caller": "$context.identity.caller", "user": "$context.identity.user", "requestTime": "$context.requestTime", "httpMethod": "$context.httpMethod", "resourcePath": "$context.resourcePath", "status": "$context.status", "protocol": "$context.protocol", "responseLength": "$context.responseLength" }'
   environment:
     TODOS_TABLE: ${self:service}-${opt:stage, 'dev'}-todos
   iam:
@@ -36,9 +25,21 @@ provider:
             - dynamodb:UpdateItem
           Resource:
             - arn:aws:dynamodb:${aws:region}:*:table/${self:provider.environment.TODOS_TABLE}
-  tags:
-    Project: go-serverless-todo
-    Environment: ${opt:stage, 'dev'}
+  httpApi:
+    cors: true
+    authorizers:
+      cognito:
+        type: jwt
+        identitySource: $request.header.Authorization
+        issuerUrl:
+          Fn::Join:
+            - ""
+            - - "https://cognito-idp."
+              - ${self:provider.region}
+              - ".amazonaws.com/"
+              - { Ref: CognitoUserPool }
+        audience:
+          - ${self:custom.appClientId}
 
 package:
   artifact: bin/handler.zip
@@ -52,17 +53,18 @@ functions:
     environment:
       STAGE: ${opt:stage, 'dev'}
     events:
-      - http:
-          path: todos
-          method: get
-          cors: true
-      - http:
-          path: todos
-          method: post
-          cors: true
+      - httpApi:
+          path: /todos
+          method: GET
+          authorizer: cognito
+      - httpApi:
+          path: /todos
+          method: POST
+          authorizer: cognito
 
 resources:
   Resources:
+
     TodosTable:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -74,3 +76,61 @@ resources:
           - AttributeName: id
             KeyType: HASH
         BillingMode: PAY_PER_REQUEST
+
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${self:service}-${self:provider.stage}-user-pool
+        AutoVerifiedAttributes:
+          - email
+        UsernameAttributes:
+          - email
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 8
+            RequireUppercase: false
+            RequireLowercase: true
+            RequireNumbers: true
+            RequireSymbols: false
+
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: ${self:service}-${self:provider.stage}-client
+        UserPoolId: !Ref CognitoUserPool
+        GenerateSecret: false
+        ExplicitAuthFlows:
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+          - ALLOW_USER_SRP_AUTH
+        SupportedIdentityProviders:
+          - COGNITO
+        CallbackURLs:
+          - http://localhost:3000
+        LogoutURLs:
+          - http://localhost:3000/logout
+        AllowedOAuthFlows:
+          - implicit
+        AllowedOAuthScopes:
+          - email
+          - openid
+          - profile
+        AllowedOAuthFlowsUserPoolClient: true
+
+    CognitoUserPoolDomain:
+      Type: AWS::Cognito::UserPoolDomain
+      Properties:
+        Domain: ${self:service}-${self:provider.stage}-auth-${sls:stage}-ds
+        UserPoolId: !Ref CognitoUserPool
+
+    HttpApiLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/http-api-access-logs
+        RetentionInDays: 7
+
+custom:
+  userPoolId:
+    Ref: CognitoUserPool
+  appClientId:
+    Ref: CognitoUserPoolClient
